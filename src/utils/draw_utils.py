@@ -74,3 +74,27 @@ def draw_skeleton_with_lines(frame, keypoints, top_left, threshold=0.3):
             if kp[0].numel() == 0:
                 print("⚠️ No keypoints found for loitering person.")
                 continue
+            
+# NEW FUNCTION — draw labels for aggression/loitering stacked above box
+def draw_styled_label(frame, x, y, text, color, font_scale=0.55, font_thickness=2):
+    """
+    Draws a styled label box with given text at (x, y).
+    """
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    text_size, _ = cv2.getTextSize(text, font, font_scale, font_thickness)
+    box_width, box_height = text_size[0] + 10, text_size[1] + 8
+
+    # Background rectangle
+    cv2.rectangle(frame, (x, y - box_height), (x + box_width, y), color, -1)
+
+    # Text overlay
+    cv2.putText(
+        frame,
+        text,
+        (x + 5, y - 5),
+        font,
+        font_scale,
+        (255, 255, 255),
+        font_thickness,
+        lineType=cv2.LINE_AA,
+    )
