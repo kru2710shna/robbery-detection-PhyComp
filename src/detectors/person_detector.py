@@ -1,3 +1,5 @@
+# src/detectors/person_detector.py
+
 import cv2
 import sys
 import os
@@ -5,7 +7,7 @@ from ultralytics import YOLO
 import numpy as np
 import time
 from collections import defaultdict
-
+from src.utils.logger import log_event
 from src.utils.save_video import init_video_writer
 from src.utils.draw_utils import draw_box_with_label, draw_styled_label
 from src.detectors.aggressive_movement import (
@@ -64,14 +66,13 @@ def detect_people_and_object(
         sys.exit(1)
 
     os.makedirs("outputs/annotated_videos", exist_ok=True)
-    output_path = "outputs/annotated_videos/robbery_output.mp4"
+    output_path = "outputs/annotated_videos/robbery_output2.mp4"
     out = init_video_writer(cap, output_path)
 
     person_tracker = {}
     next_person_id = 0
-    
+
     frame_count = 0
-   
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -90,8 +91,19 @@ def detect_people_and_object(
             persons, person_tracker, next_person_id
         )
 
-        annotate_persons(frame, persons, object_tracker, tracked_ids, pose_model, person_tracker, frame_count)
-        annotate_objects(frame, persons, nearby_objects, frame_count, object_tracker, person_tracker)
+        annotate_persons(
+            frame,
+            persons,
+            object_tracker,
+            tracked_ids,
+            pose_model,
+            person_tracker,
+            frame_count,
+            time_str,
+        )
+        annotate_objects(
+            frame, persons, nearby_objects, frame_count, object_tracker, person_tracker
+        )
 
         sys.stdout.write(
             f"\r⏱️ {time_str} | 👤 Persons: {len(persons)} | 🎒 Objects: {len(nearby_objects)} | ⚡ {inference_time:.1f}ms | Shape: {shape_str}"
@@ -161,113 +173,116 @@ def track_persons(persons, tracker, next_id):
 kp_history = {}
 object_tracker = {}
 alerts = defaultdict(list)
+last_agg_log_frame = defaultdict(lambda: -1)
 
 
-def annotate_persons(frame, persons, object_tracker, tracked_ids, pose_model, person_tracker, frame_count):
+def annotate_persons(
+    frame,
+    persons,
+    object_tracker,
+    tracked_ids,
+    pose_model,
+    person_tracker,
+    frame_count,
+    time_str,
+):
+    """
+    Draws boxes/labels, updates FSM state, logs events.
+    – Aggression is evaluated for every person (not only loiterers)
+    – Logs once every 14 frames per event type
+    """
+
     for person in persons:
         x1, y1, x2, y2 = person["bbox"]
-        pid, loitering_frames = tracked_ids.get(id(person), (-1, 0))
-        is_loitering = loitering_frames >= LOITERING_THRESHOLD_FRAMES
+        pid, seen_frames = tracked_ids.get(id(person), (-1, 0))
+        is_loitering = seen_frames >= LOITERING_THRESHOLD_FRAMES
 
-        # ✅ Add this at the top of your file if not already imported
-
-        # Set default to green initially, will update below if available
-        color = STATE_COLOR_MAP.get("green")
-        label = f"Person #{pid}"
-        top_labels = []
-
-        if is_loitering:
+        # ───────────────────────────────── Pose extraction ─────────────────────────
+        keypoints = None
+        if not too_far_for_skeleton((x1, y1, x2, y2)):
             crop = frame[y1:y2, x1:x2]
-            if too_far_for_skeleton((x1, y1, x2, y2)):
-                top_labels.append(" Far View – Pose Unavailable")
-                color = (255, 165, 0)  # Orange
-                if pid in person_tracker and person_tracker[pid]["state"] == "green":
-                    person_tracker[pid]["state"] = (
-                        "yellow"  # Escalate if loitering detected too
-                    )
-            else:
-                # ✅ Proceed with pose estimation if bounding box is large enough
-                frame, keypoints = making_skeleton(
-                    frame, pose_model, crop, (x1, y1), return_keypoints=True
-                )
+            frame, keypoints = making_skeleton(
+                frame, pose_model, crop, (x1, y1), return_keypoints=True
+            )
+            if keypoints is not None:
+                kp_history.setdefault(pid, []).append(keypoints)
+                kp_history[pid] = kp_history[pid][-2:]  # keep last 2 only
 
-                if keypoints is not None:
-                    if pid not in kp_history:
-                        kp_history[pid] = []
-                    kp_history[pid].append(keypoints)
-                    if len(kp_history[pid]) > 2:
-                        kp_history[pid] = kp_history[pid][-2:]
+        # ─────────────────── Aggression & loitering classification ─────────────────
+        top_labels, aggression_type = [], None
+        if keypoints is not None and len(kp_history[pid]) >= 2:
+            if detect_both_hands_aggression(kp_history, pid):
+                aggression_type = "Both-Hands Aggression"
+            elif detect_side_or_back_aggression(kp_history, pid):
+                aggression_type = "Side/Back Aggression"
+            elif detect_aggression_low_body_motion(kp_history, pid):
+                aggression_type = "Low Motion Aggression"
+            elif detect_aggressive_arm_motion(kp_history, pid):
+                aggression_type = "Arm Aggression"
 
-                # Check all types of aggression
-                detected = False
+        # ────────────────────────────── FSM + logging ──────────────────────────────
+        current_state = person_tracker.get(pid, {}).get("state", "green")
+        colour = STATE_COLOR_MAP[current_state]
 
-                # ✅ Priority-based detection
-                if detect_both_hands_aggression(kp_history, pid):
-                    top_labels.append("🟥  Both-Hands Aggression 🟥  ")
-                    color = (0, 0, 255)
-                    detected = True
-                elif detect_side_or_back_aggression(kp_history, pid):
-                    top_labels.append("🟥  Side/Back Aggression 🟥  ")
-                    color = (0, 0, 255)
-                    detected = True
-                elif detect_aggression_low_body_motion(kp_history, pid):
-                    top_labels.append("🟥  Low Motion Aggression 🟥 ")
-                    color = (0, 0, 255)
-                    detected = True
-                elif detect_aggressive_arm_motion(kp_history, pid):
-                    top_labels.append("🟥  Arm Aggression 🟥 ")
-                    color = (0, 0, 255)
-                    detected = True
+        # Aggression first (highest priority)
+        if aggression_type:
+            last_frame = last_agg_log_frame[pid]
+            if last_frame == -1 or frame_count - last_frame >= 14:
+                log_event(frame_count, time_str, aggression_type, pid)
+                last_agg_log_frame[pid] = frame_count
+            top_labels.append(f"🟥 {aggression_type} 🟥")
+            colour = (0, 0, 255)
+            person_tracker[pid]["state"] = "red"
+            person_tracker[pid]["aggression_frames"] += 1
+            if frame_count % 14 == 0:
+                log_event(frame_count, time_str, aggression_type, pid)
 
-                # ✅ Fallback label if none of the above triggered
-                if not detected:
-                    top_labels.append("Loitering")
-                    color = (0, 255, 255)
+        # Loitering (only if not already red)
+        elif is_loitering:
+            top_labels.append("Loitering")
+            if current_state == "green":
+                person_tracker[pid]["state"] = "yellow"
+            colour = STATE_COLOR_MAP[person_tracker[pid]["state"]]
+            if frame_count % 14 == 0:
+                log_event(frame_count, time_str, "Loitering", pid)
 
-                for other in persons:
-                    if other == person:
-                        continue
-                    if is_too_close(person, other):
-                        top_labels.append("⚠️ Close Contact – Suspect")
-                        break
+        # Return to green if nothing else
+        elif current_state not in ("red", "blinking"):
+            person_tracker[pid]["state"] = "green"
+            colour = STATE_COLOR_MAP["green"]
 
-                # ✅ Add FSM state updates based on label
-                if pid in person_tracker:
-                    if any("Aggression" in lbl for lbl in top_labels):
-                        person_tracker[pid]["state"] = "red"
-                        person_tracker[pid]["aggression_frames"] += 1
-                    elif (
-                        "Loitering" in top_labels
-                        and person_tracker[pid]["state"] == "green"
-                    ):
-                        person_tracker[pid]["state"] = "yellow"
-                    elif "Loitering" not in top_labels:
-                        person_tracker[pid]["state"] = "green"
+        # ───────────────────── Label override & drawing ────────────────────────────
+        draw_label = (
+            "Aggressive" if person_tracker[pid]["state"] == "red" else f"Person #{pid}"
+        )
+        draw_box_with_label(frame, x1, y1, x2, y2, draw_label, colour)
 
-        # Draw box and all non-overlapping labels
-        if pid in person_tracker:
-            color = STATE_COLOR_MAP.get(person_tracker[pid]["state"], (0, 255, 0))
+        # Stacked motion / info labels
+        label_y = max(22, y1)
+        for txt in top_labels:
+            draw_styled_label(frame, x1, label_y, txt, colour)
+            label_y -= 22
 
-        draw_box_with_label(frame, x1, y1, x2, y2, label, color)
-
-        label_y = max(22, y1)  # Prevent drawing above frame
-        for motion_label in top_labels:
-            draw_styled_label(frame, x1, label_y, motion_label, color)
-            label_y -= 22  # Move up for next label to avoid overlap
-    disappeared_objects = track_object_disappearance(object_tracker, frame_count)
-
-    for obj_id, info in disappeared_objects:
+    # ───── Track disappeared objects & log thefts ─────
+    disappeared = track_object_disappearance(object_tracker, frame_count)
+    for obj_id, info in disappeared:
         pid = info.get("last_seen_by_pid")
         if pid in person_tracker:
             person_tracker[pid]["state"] = "red"
-            person_tracker[pid]["reason"] = "Object Stolen"
-            if pid not in alerts:
-                alerts[pid] = []
             alerts[pid].append("🟥 Object Taken 🟥")
+            if frame_count % 14 == 0:
+                log_event(
+                    frame_count,
+                    "N/A",
+                    "Object Taken",
+                    pid,
+                    extra_info={"object": obj_id},
+                )
 
 
 def annotate_objects(
-    frame, persons, nearby_objects, frame_count, object_tracker, person_tracker ):
+    frame, persons, nearby_objects, frame_count, object_tracker, person_tracker
+):
     for obj in nearby_objects:
         cx, cy = obj["center"]
         label = obj["label"]
