@@ -206,3 +206,11 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 data/raw_training/Normal_Videos137_x264.mp4
+*.pt
+*.mp4
+*.avi
+*.mov
+*.mkv
+outputs/annotated_videos/
+models/yolo_weights/
+data/raw_training/
