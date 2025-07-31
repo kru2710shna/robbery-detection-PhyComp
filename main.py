@@ -12,8 +12,10 @@ def main():
     model_path = "models/yolo_weights/yolov8s.pt"
     robbery_video_path1 = "data/raw_training/Robbery150_x264.mp4"
     robbery_video_path2 = "/Users/krushna/Downloads/Robbery144_x264.mp4"
+    robbery_video_path3 = '/Users/krushna/robbery-detection-PhyComp/data/raw_training/Robbery003_x264.mp4'
+    robbery_video_path4 = '/Users/krushna/robbery-detection-PhyComp/data/raw_training/Robbery009_x264.mp4'
     
-    # normal_video_path = 'data/raw_training/Normal_Videos137_x264.mp4'
+    normal_video_path = 'data/raw_training/Normal_Videos137_x264.mp4'
     
     
     pose_model_path = "models/yolo_weights/yolov8s-pose.pt"
@@ -21,7 +23,7 @@ def main():
 
     # Run detection
     dpao(
-        video_path=robbery_video_path2,
+        video_path=robbery_video_path4,
         model_path=model_path,
         pose_model=pose_model,
         show=True # Set to False to disable video display

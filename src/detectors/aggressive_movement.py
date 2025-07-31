@@ -300,7 +300,7 @@ def detect_side_or_back_aggression(kp_history, pid, speed_thresh=10):
     if not (len(lw_prev) >= 3 and len(rw_prev) >= 3):
         print("⚠️ Missing confidence in wrist keypoints.")
         return False
-    
+
     if len(lw_prev) < 3 or len(rw_prev) < 3:
         return False
 
@@ -359,7 +359,9 @@ def too_far_for_skeleton(bbox, min_area_threshold=3000):
     return area < min_area_threshold
 
 
-def track_object_disappearance(object_tracker, current_frame_count, disappearance_threshold=10):
+def track_object_disappearance(
+    object_tracker, current_frame_count, disappearance_threshold=10
+):
     disappeared = []
     to_delete = []
     for obj_id, info in object_tracker.items():
@@ -370,7 +372,6 @@ def track_object_disappearance(object_tracker, current_frame_count, disappearanc
     for obj_id in to_delete:
         del object_tracker[obj_id]
     return disappeared
-
 
 
 def is_too_close(person_a, person_b, threshold=40):

@@ -20,6 +20,10 @@ from src.detectors.aggressive_movement import (
     track_object_disappearance,
     is_too_close,
 )
+from src.detectors.weapon_detector import detect_weapons, draw_weapon_boxes
+from src.detectors.victim_detector import detect_victim
+
+
 
 # Constants
 BOX_THICKNESS = 2
@@ -57,16 +61,18 @@ STATE_COLOR_MAP = {
 
 def detect_people_and_object(
     model_path: str, video_path: str, pose_model: YOLO, show: bool = True
+    
 ):
     model = YOLO(model_path)
     cap = cv2.VideoCapture(video_path)
+    
 
     if not cap.isOpened():
         print("❌ Error: Could not open video file.")
         sys.exit(1)
 
     os.makedirs("outputs/annotated_videos", exist_ok=True)
-    output_path = "outputs/annotated_videos/robbery_output2.mp4"
+    output_path = "outputs/annotated_videos/robbery_output_testing1.mp4"
     out = init_video_writer(cap, output_path)
 
     person_tracker = {}
@@ -90,7 +96,14 @@ def detect_people_and_object(
         tracked_ids, next_person_id = track_persons(
             persons, person_tracker, next_person_id
         )
-
+        weapon_detections = detect_weapons(frame)
+        if weapon_detections:
+            print(f"⚠️ Weapons detected: {weapon_detections}")
+        else:
+            print("✅ No weapons detected this frame.")
+        frame = draw_weapon_boxes(frame, weapon_detections)
+        
+        
         annotate_persons(
             frame,
             persons,
@@ -100,10 +113,21 @@ def detect_people_and_object(
             person_tracker,
             frame_count,
             time_str,
+            weapon_detections,
         )
         annotate_objects(
             frame, persons, nearby_objects, frame_count, object_tracker, person_tracker
         )
+                
+        # 👁 Display & save frame
+        if out:
+            out.write(frame)
+        if show:
+            cv2.imshow("Robbery Detection Viewer", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+        
+        
 
         sys.stdout.write(
             f"\r⏱️ {time_str} | 👤 Persons: {len(persons)} | 🎒 Objects: {len(nearby_objects)} | ⚡ {inference_time:.1f}ms | Shape: {shape_str}"
@@ -176,6 +200,19 @@ alerts = defaultdict(list)
 last_agg_log_frame = defaultdict(lambda: -1)
 
 
+def iou(boxA, boxB):
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+    boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+
+    return interArea / float(boxAArea + boxBArea - interArea + 1e-6)
+
+
 def annotate_persons(
     frame,
     persons,
@@ -185,6 +222,7 @@ def annotate_persons(
     person_tracker,
     frame_count,
     time_str,
+    weapon_detections
 ):
     """
     Draws boxes/labels, updates FSM state, logs events.
@@ -201,9 +239,12 @@ def annotate_persons(
         keypoints = None
         if not too_far_for_skeleton((x1, y1, x2, y2)):
             crop = frame[y1:y2, x1:x2]
-            frame, keypoints = making_skeleton(
-                frame, pose_model, crop, (x1, y1), return_keypoints=True
-            )
+            if crop.shape[0] < 32 or crop.shape[1] < 32:
+                print("⚠️ Skipping pose due to small crop size.")
+            else:
+                frame, keypoints = making_skeleton(
+                    frame, pose_model, crop, (x1, y1), return_keypoints=True
+                )
             if keypoints is not None:
                 kp_history.setdefault(pid, []).append(keypoints)
                 kp_history[pid] = kp_history[pid][-2:]  # keep last 2 only
@@ -213,12 +254,25 @@ def annotate_persons(
         if keypoints is not None and len(kp_history[pid]) >= 2:
             if detect_both_hands_aggression(kp_history, pid):
                 aggression_type = "Both-Hands Aggression"
+            if detect_victim(pid, kp_history, person_tracker):
+                top_labels.append("🟦 Victim Behavior")
+                person_tracker[pid]["state"] = "blue"
             elif detect_side_or_back_aggression(kp_history, pid):
                 aggression_type = "Side/Back Aggression"
             elif detect_aggression_low_body_motion(kp_history, pid):
                 aggression_type = "Low Motion Aggression"
             elif detect_aggressive_arm_motion(kp_history, pid):
+                print(f"Frame {frame_count}: Arm aggression detected for Person #{pid}")
                 aggression_type = "Arm Aggression"
+
+        # ───────────────────── Weapon Detection by IoU ─────────────────────────────
+        for det in weapon_detections:
+            wx1, wy1, wx2, wy2 = det["bbox"]
+            if iou((x1, y1, x2, y2), (wx1, wy1, wx2, wy2)) > 0.5:
+                person_tracker[pid]["state"] = "blinking"
+                person_tracker[pid]["weapon_detected"] = True
+                top_labels.append("🚨 Weapon Detected 🚨")
+                break
 
         # ────────────────────────────── FSM + logging ──────────────────────────────
         current_state = person_tracker.get(pid, {}).get("state", "green")
@@ -237,7 +291,7 @@ def annotate_persons(
             if frame_count % 14 == 0:
                 log_event(frame_count, time_str, aggression_type, pid)
 
-        # Loitering (only if not already red)
+        # Loitering (only if not already red/blinking)
         elif is_loitering:
             top_labels.append("Loitering")
             if current_state == "green":

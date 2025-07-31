@@ -38,6 +38,32 @@ def download_yolov8s_pose_model():
         print("✔️ YOLOv8s-Pose model already exists at:", save_path)
 
 
+def download_weapon_model():
+    model_path = "models/weapon_model.pt"
+    if os.path.exists(model_path):
+        print("✅ Weapon detection model already exists.")
+        return
+    try:
+        print("📥 Downloading pretrained weapon detection model...")
+        url = "https://example.com/path/to/weapon_model.pt" 
+        urllib.request.urlretrieve(url, model_path)
+        print("✅ Download complete.")
+    except Exception as e:
+        print(f"❌ Failed to download weapon model: {e}")
+
+
+
+def verify_weapon_dataset():
+    dataset_dir = Path("../datasets/weapon_detection/")
+    if dataset_dir.exists() and (dataset_dir / "data.yaml").exists():
+        print("✅ Weapon detection dataset already organized and available.")
+    else:
+        print("⚠️ Please make sure the weapon detection dataset is manually downloaded and placed at:", dataset_dir)
+        
+        
+
 if __name__ == "__main__":
     download_yolov8s_model()
     download_yolov8s_pose_model()
+    verify_weapon_dataset()
+    download_weapon_model()

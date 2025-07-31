@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 14
+names: ['ak', 'ax', 'cleaver', 'cutter', 'eto', 'knife', 'long sword', 'm16', 'revolver', 'rifle', 'semi automatic', 'short sword', 'shotgun', 'spear']
+
+roboflow:
+  workspace: rhackathon
+  project: weapon-detection-aoxpz
+  version: 5
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/rhackathon/weapon-detection-aoxpz/dataset/5
