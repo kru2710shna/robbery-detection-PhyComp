@@ -1,5 +1,3 @@
-# src/detectors/person_detector.py
-
 import cv2
 import sys
 import os
@@ -22,7 +20,6 @@ from src.detectors.aggressive_movement import (
 )
 from src.detectors.weapon_detector import detect_weapons, draw_weapon_boxes
 from src.detectors.victim_detector import detect_victim
-
 
 
 # Constants
@@ -61,18 +58,16 @@ STATE_COLOR_MAP = {
 
 def detect_people_and_object(
     model_path: str, video_path: str, pose_model: YOLO, show: bool = True
-    
 ):
     model = YOLO(model_path)
     cap = cv2.VideoCapture(video_path)
-    
 
     if not cap.isOpened():
         print("❌ Error: Could not open video file.")
         sys.exit(1)
 
     os.makedirs("outputs/annotated_videos", exist_ok=True)
-    output_path = "outputs/annotated_videos/robbery_output_testing1.mp4"
+    output_path = "outputs/annotated_videos/normal_output_testing1.mp4"
     out = init_video_writer(cap, output_path)
 
     person_tracker = {}
@@ -97,13 +92,8 @@ def detect_people_and_object(
             persons, person_tracker, next_person_id
         )
         weapon_detections = detect_weapons(frame)
-        if weapon_detections:
-            print(f"⚠️ Weapons detected: {weapon_detections}")
-        else:
-            print("✅ No weapons detected this frame.")
         frame = draw_weapon_boxes(frame, weapon_detections)
-        
-        
+
         annotate_persons(
             frame,
             persons,
@@ -118,7 +108,7 @@ def detect_people_and_object(
         annotate_objects(
             frame, persons, nearby_objects, frame_count, object_tracker, person_tracker
         )
-                
+
         # 👁 Display & save frame
         if out:
             out.write(frame)
@@ -126,8 +116,6 @@ def detect_people_and_object(
             cv2.imshow("Robbery Detection Viewer", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
-        
-        
 
         sys.stdout.write(
             f"\r⏱️ {time_str} | 👤 Persons: {len(persons)} | 🎒 Objects: {len(nearby_objects)} | ⚡ {inference_time:.1f}ms | Shape: {shape_str}"
@@ -222,7 +210,7 @@ def annotate_persons(
     person_tracker,
     frame_count,
     time_str,
-    weapon_detections
+    weapon_detections,
 ):
     """
     Draws boxes/labels, updates FSM state, logs events.
@@ -262,7 +250,6 @@ def annotate_persons(
             elif detect_aggression_low_body_motion(kp_history, pid):
                 aggression_type = "Low Motion Aggression"
             elif detect_aggressive_arm_motion(kp_history, pid):
-                print(f"Frame {frame_count}: Arm aggression detected for Person #{pid}")
                 aggression_type = "Arm Aggression"
 
         # ───────────────────── Weapon Detection by IoU ─────────────────────────────

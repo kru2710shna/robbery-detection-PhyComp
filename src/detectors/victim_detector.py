@@ -70,4 +70,3 @@ def is_ducking(kp_curr):
 
     shoulder_avg_y = (lshoulder[1] + rshoulder[1]) / 2
     return nose[1] > shoulder_avg_y + 20  # head lower than shoulders → crouching
-

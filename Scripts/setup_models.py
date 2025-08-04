@@ -1,5 +1,3 @@
-# File: setup_models.py
-
 import os
 from pathlib import Path
 import urllib.request
@@ -65,5 +63,5 @@ def verify_weapon_dataset():
 if __name__ == "__main__":
     download_yolov8s_model()
     download_yolov8s_pose_model()
-    verify_weapon_dataset()
-    download_weapon_model()
+    # verify_weapon_dataset()
+    # download_weapon_model()

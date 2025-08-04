@@ -23,7 +23,7 @@ def main():
 
     # Run detection
     dpao(
-        video_path=robbery_video_path4,
+        video_path=robbery_video_path2,
         model_path=model_path,
         pose_model=pose_model,
         show=True # Set to False to disable video display
